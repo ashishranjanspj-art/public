@@ -1306,10 +1306,11 @@ function ayument_module_page($title, $description, $message) {
                 >
                     ← Back to AyuMent Dashboards
                 </a>
-            </p>
+            </p> 
 
         </div>
 
     </div>
     <?php
 }  
+require_once plugin_dir_path(__FILE__) . 'ayument-quick-tools.php';
