@@ -1314,3 +1314,4 @@ function ayument_module_page($title, $description, $message) {
     <?php
 }  
 require_once plugin_dir_path(__FILE__) . 'ayument-quick-tools.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-prakriti.php';

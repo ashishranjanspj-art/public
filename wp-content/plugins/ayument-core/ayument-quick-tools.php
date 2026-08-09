@@ -35,9 +35,31 @@ add_action('admin_menu', 'ayument_quick_tools_menu');
 function ayument_quick_tools_page() {
     ?>
 
-    <div class="wrap ayument-quick-tools">
+   <div class="wrap ayument-quick-tools">
 
-        <style>
+    <div style="
+        background: linear-gradient(135deg, #315c45, #4f8065);
+        color: #ffffff;
+        padding: 28px 32px;
+        border-radius: 12px;
+        margin-bottom: 25px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+    ">
+        <h1 style="margin: 0 0 10px 0; color: #ffffff;">
+            AyuMent Quick Tools
+        </h1>
+
+        <p style="margin: 0; font-size: 16px; line-height: 1.6;">
+            Your workspace for Ayurveda research, clinical documentation,
+            laboratory interpretation and AI-assisted tools.
+        </p>
+
+        <p style="margin: 10px 0 0 0; opacity: 0.9;">
+            Explore the tools below to simplify your Ayurveda workflow.
+        </p>
+    </div>
+
+    <style>
 
             .ayument-quick-tools {
                 max-width: 1100px;
