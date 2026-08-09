@@ -78,14 +78,60 @@ function ayument_prakriti_page() {
     ?>
     <div class="wrap ayument-prakriti-wrap">
     <style>
-    .ayument-prakriti-wrap{max-width:1050px;margin:25px auto}.ayument-prakriti-hero{background:linear-gradient(135deg,#315c45,#4f8065);color:#fff;padding:30px;border-radius:16px;margin-bottom:22px;box-shadow:0 5px 18px rgba(0,0,0,.1)}.ayument-prakriti-hero h1{color:#fff;margin:0 0 8px;font-size:30px}.ayument-prakriti-hero p{margin:0;font-size:15px;line-height:1.6}.ayument-prakriti-card{background:#fff;border:1px solid #dfe8e2;border-radius:14px;padding:25px;box-shadow:0 4px 14px rgba(0,0,0,.05);margin-bottom:20px}.ayument-progress{height:8px;background:#e7eee9;border-radius:10px;overflow:hidden;margin:15px 0 25px}.ayument-progress-bar{height:100%;width:0;background:#315c45;transition:width .2s}.ayument-question{display:none}.ayument-question.active{display:block}.ayument-question h2{margin-top:0;color:#26372d;font-size:21px}.ayument-option{display:block;border:1px solid #dfe8e2;border-radius:10px;padding:14px 16px;margin:10px 0;cursor:pointer;background:#fbfdfb}.ayument-option:hover{border-color:#315c45;background:#f4f9f5}.ayument-option input{margin-right:10px}.ayument-nav{display:flex;justify-content:space-between;gap:10px;margin-top:25px}.ayument-result-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin:20px 0}.ayument-score{border:1px solid #dfe8e2;border-radius:12px;padding:18px;text-align:center;background:#fbfdfb}.ayument-score strong{display:block;font-size:28px;color:#315c45;margin-top:5px}.ayument-result-title{font-size:26px;margin-bottom:8px;color:#315c45}.ayument-disclaimer{background:#f7f7f7;border-left:4px solid #315c45;padding:15px;line-height:1.6;font-size:13px}.ayument-error{background:#fff1f1;border-left:4px solid #c0392b;padding:15px;margin-bottom:20px}@media(max-width:700px){.ayument-result-grid{grid-template-columns:1fr}}
+    .ayument-prakriti-wrap{max-width:1050px;margin:25px auto}.ayument-prakriti-hero{background:linear-gradient(135deg,#315c45,#4f8065);color:#fff;padding:30px;border-radius:16px;margin-bottom:22px;box-shadow:0 5px 18px rgba(0,0,0,.1)}.ayument-prakriti-hero h1{color:#fff;margin:0 0 8px;font-size:30px}.ayument-prakriti-hero p{margin:0;font-size:15px;line-height:1.6}.ayument-prakriti-card{background:#fff;border:1px solid #dfe8e2;border-radius:14px;padding:25px;box-shadow:0 4px 14px rgba(0,0,0,.05);margin-bottom:20px}.ayument-progress{height:8px;background:#e7eee9;border-radius:10px;overflow:hidden;margin:15px 0 25px}.ayument-progress-bar{height:100%;width:0;background:#315c45;transition:width .2s}.ayument-question{display:none}.ayument-question.active{display:block}.ayument-question h2{margin-top:0;color:#26372d;font-size:21px}.ayument-option{display:block;border:1px solid #dfe8e2;border-radius:10px;padding:14px 16px;margin:10px 0;cursor:pointer;background:#fbfdfb}.ayument-option:hover{border-color:#315c45;background:#f4f9f5}.ayument-option input{margin-right:10px}.ayument-nav{display:flex;justify-content:space-between;gap:10px;margin-top:25px}.ayument-result-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin:20px 0}.ayument-score{border:1px solid #dfe8e2;border-radius:12px;padding:18px;text-align:center;background:#fbfdfb}.ayument-score strong{display:block;font-size:28px;color:#315c45;margin-top:5px}.ayument-result-title{font-size:26px;margin-bottom:8px;color:#315c45}.ayument-disclaimer{background:#f7f7f7;border-left:4px solid #315c45;padding:15px;line-height:1.6;font-size:13px}.ayument-error{background:#fff1f1;border-left:4px solid #c0392b;padding:15px;margin-bottom:20px}.ayument-result-kicker{font-size:12px;letter-spacing:1.5px;font-weight:700;color:#6b7d72;margin-bottom:6px}.ayument-profile-badge{display:inline-block;background:#edf6ef;color:#315c45;border:1px solid #cfe1d4;border-radius:999px;padding:9px 15px;font-weight:700;margin:5px 0 15px}.ayument-result-summary{font-size:16px;line-height:1.7}.ayument-score-primary{border-color:#315c45;background:#f1f8f3;box-shadow:0 0 0 2px rgba(49,92,69,.08)}.ayument-score span{font-weight:600}.ayument-score small{display:block;color:#6b7d72;margin-top:5px}.ayument-result-sections{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin:22px 0}.ayument-result-box{background:#f8fbf9;border:1px solid #dfe8e2;border-radius:12px;padding:18px}.ayument-result-box h3{margin:0 0 9px;color:#315c45;font-size:17px}.ayument-result-box p{line-height:1.65;margin:0 0 7px}.ayument-result-actions{margin-top:20px}@media(max-width:700px){.ayument-result-grid,.ayument-result-sections{grid-template-columns:1fr}}
     </style>
     <div class="ayument-prakriti-hero"><h1>🌿 Prakriti Assessment</h1><p>Ayument Professional Prakriti Assessment · 60 questions</p></div>
     <?php if($error): ?><div class="ayument-error"><?php echo esc_html($error); ?></div><?php endif; ?>
     <?php if($submitted && !$error): ?>
-      <div class="ayument-prakriti-card"><div class="ayument-result-title">Your Prakriti Profile</div><p><strong><?php echo esc_html($profile); ?></strong></p><div class="ayument-result-grid">
-      <?php foreach(array('Vata','Pitta','Kapha') as $d): ?><div class="ayument-score"><?php echo esc_html($d); ?><strong><?php echo esc_html($scores[$d]); ?></strong><?php echo esc_html($pct[$d]); ?>%</div><?php endforeach; ?></div>
-      <p>The assessment pattern is predominantly <?php echo esc_html($primary); ?>-oriented based on the answers selected.</p><div class="ayument-disclaimer"><strong>Important:</strong> This is an Ayurvedic constitution assessment based on the supplied questionnaire. It is not a medical or psychiatric diagnosis and should not replace professional clinical evaluation.</div><p style="margin-top:20px"><a href="<?php echo esc_url(admin_url('admin.php?page=ayument-prakriti')); ?>" class="button button-primary">Retake Assessment</a></p></div>
+      <?php
+      $prakriti_info=array(
+        'Vata'=>array(
+          'icon'=>'🌬️','tone'=>'Movement, creativity and adaptability',
+          'summary'=>'Your responses show stronger Vata-associated characteristics such as variability, quick activity, creativity and sensitivity to changes in routine.',
+          'helpful'=>'Regular meals, adequate rest, warmth, a predictable routine and calming activities may be supportive.',
+          'watch'=>'Irregular routines, excessive stimulation, skipped meals and inadequate sleep may be less supportive.'
+        ),
+        'Pitta'=>array(
+          'icon'=>'🔥','tone'=>'Transformation, focus and intensity',
+          'summary'=>'Your responses show stronger Pitta-associated characteristics such as focus, intensity, strong appetite and goal-oriented behaviour.',
+          'helpful'=>'A balanced routine, adequate hydration, moderation, cooling/restful activities and avoiding excessive heat may be supportive.',
+          'watch'=>'Excessive heat, overwork, irritability and highly intense routines may be less supportive.'
+        ),
+        'Kapha'=>array(
+          'icon'=>'🌿','tone'=>'Stability, strength and endurance',
+          'summary'=>'Your responses show stronger Kapha-associated characteristics such as steadiness, patience, endurance and preference for consistency.',
+          'helpful'=>'Regular movement, a stimulating routine, appropriate activity and avoiding excessive inactivity may be supportive.',
+          'watch'=>'Prolonged inactivity, excessive heaviness in routine and overeating may be less supportive.'
+        )
+      );
+      $pi=$prakriti_info[$primary];
+      $secondary_info=$prakriti_info[$secondary];
+      ?>
+      <div class="ayument-prakriti-card ayument-result-main">
+        <div class="ayument-result-kicker">ASSESSMENT COMPLETE</div>
+        <div class="ayument-result-title"><?php echo esc_html($pi['icon']); ?> Your Prakriti Profile</div>
+        <div class="ayument-profile-badge"><?php echo esc_html($profile); ?></div>
+        <p class="ayument-result-summary"><?php echo esc_html($pi['summary']); ?></p>
+
+        <div class="ayument-result-grid">
+        <?php foreach(array('Vata','Pitta','Kapha') as $d): ?>
+          <div class="ayument-score <?php echo $d===$primary?'ayument-score-primary':''; ?>">
+            <span><?php echo esc_html($d); ?></span>
+            <strong><?php echo esc_html($pct[$d]); ?>%</strong>
+            <small><?php echo esc_html($scores[$d]); ?> / <?php echo count($questions); ?> responses</small>
+          </div>
+        <?php endforeach; ?>
+        </div>
+
+        <div class="ayument-result-sections">
+          <div class="ayument-result-box"><h3>🌿 What this indicates</h3><p><strong><?php echo esc_html($primary); ?>:</strong> <?php echo esc_html($pi['tone']); ?>.</p><p>Your secondary influence is <strong><?php echo esc_html($secondary); ?></strong>, so your profile may also reflect some <?php echo esc_html(strtolower($secondary_info['tone'])); ?>.</p></div>
+          <div class="ayument-result-box"><h3>✓ Generally supportive habits</h3><p><?php echo esc_html($pi['helpful']); ?></p></div>
+          <div class="ayument-result-box"><h3>⚠️ Things to be mindful of</h3><p><?php echo esc_html($pi['watch']); ?></p></div>
+        </div>
+
+        <div class="ayument-disclaimer"><strong>Important:</strong> This is an educational Ayurvedic constitution assessment based on the supplied questionnaire. It is not a medical or psychiatric diagnosis, does not establish a disease or dosha imbalance, and should not replace professional clinical evaluation.</div>
+        <div class="ayument-result-actions"><a href="<?php echo esc_url(admin_url('admin.php?page=ayument-prakriti')); ?>" class="button button-primary">↻ Retake Assessment</a></div>
+      </div>
     <?php else: ?>
       <form method="post" id="ayument-prakriti-form"><?php wp_nonce_field('ayument_prakriti_assessment','ayument_prakriti_nonce'); ?><div class="ayument-prakriti-card"><div>Question <span id="ayument-current">1</span> of <?php echo count($questions); ?></div><div class="ayument-progress"><div class="ayument-progress-bar" id="ayument-progress-bar"></div></div>
       <?php foreach($questions as $i=>$q): ?><div class="ayument-question<?php echo $i===0?' active':''; ?>" data-question="<?php echo esc_attr($i); ?>"><h2><?php echo esc_html(($i+1).'. '.$q['q']); ?></h2><label class="ayument-option"><input type="radio" name="prakriti_answer[<?php echo esc_attr($i); ?>]" value="A">A. <?php echo esc_html($q['a']); ?></label><label class="ayument-option"><input type="radio" name="prakriti_answer[<?php echo esc_attr($i); ?>]" value="B">B. <?php echo esc_html($q['b']); ?></label><label class="ayument-option"><input type="radio" name="prakriti_answer[<?php echo esc_attr($i); ?>]" value="C">C. <?php echo esc_html($q['c']); ?></label></div><?php endforeach; ?>
