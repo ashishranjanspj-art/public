@@ -1163,13 +1163,6 @@ function ayument_patients_page() {
 |--------------------------------------------------------------------------
 */
 
-function ayument_appointments_page() {
-    ayument_module_page(
-        '📅 Appointments',
-        'Schedule and manage consultations and appointments.',
-        'Appointment scheduling functionality will be developed here.'
-    );
-}
 
 
 /*
@@ -1177,14 +1170,6 @@ function ayument_appointments_page() {
 | PRESCRIPTIONS
 |--------------------------------------------------------------------------
 */
-
-function ayument_prescriptions_page() {
-    ayument_module_page(
-        '💊 Prescriptions',
-        'Manage prescriptions created during consultations.',
-        'Prescription management functionality will be developed here.'
-    );
-}
 
 
 /*
@@ -1287,30 +1272,7 @@ function ayument_module_page($title, $description, $message) {
 
             <hr>
 
-            <div
-                style="
-                    margin-top:25px;
-                    padding:22px;
-                    background:#f1f7f3;
-                    border-left:5px solid #315c45;
-                    border-radius:8px;
-                "
-            >
-
-                <h2 style="margin-top:0;">
-                    AyuMent Development Module
-                </h2>
-
-                <p style="font-size:16px;">
-                    <?php echo $message; ?>
-                </p>
-
-                <p>
-                    <strong>Status:</strong>
-                    Development
-                </p>
-
-            </div>
+            
 
             <p style="margin-top:25px;">
                 <a
@@ -1332,3 +1294,5 @@ require_once plugin_dir_path( __FILE__ ) . 'ayument-hamd.php';
 require_once plugin_dir_path( __FILE__ ) . 'ayument-hama.php';
 require_once plugin_dir_path( __FILE__ ) . 'ayument-patients.php';
 require_once plugin_dir_path( __FILE__ ) . 'ayument-consultations.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-prescriptions.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-appointments.php';
