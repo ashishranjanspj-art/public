@@ -48,6 +48,23 @@ function ayument_core_menu() {
         'ayument-doctor',
         'ayument_doctor_page'
     );
+    add_submenu_page(
+    'ayument-dashboard',
+    'HAM-D17 Assessment',
+    'HAM-D17 Assessment',
+    'manage_options',
+    'ayument-hamd',
+    'ayument_hamd_page'
+);
+
+add_submenu_page(
+    'ayument-dashboard',
+    'HAM-A14 Assessment',
+    'HAM-A14 Assessment',
+    'manage_options',
+    'ayument-hama',
+    'ayument_hama_page'
+);
 
     add_submenu_page(
         'ayument-dashboard',
@@ -1136,11 +1153,7 @@ function ayument_doctor_page() {
 */
 
 function ayument_patients_page() {
-    ayument_module_page(
-        '👤 Patients',
-        'Manage patient profiles and consultation records.',
-        'Patient management functionality will be developed here.'
-    );
+    ayument_render_patients_page();
 }
 
 
@@ -1315,3 +1328,7 @@ function ayument_module_page($title, $description, $message) {
 }  
 require_once plugin_dir_path(__FILE__) . 'ayument-quick-tools.php';
 require_once plugin_dir_path( __FILE__ ) . 'ayument-prakriti.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-hamd.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-hama.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-patients.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-consultations.php';
