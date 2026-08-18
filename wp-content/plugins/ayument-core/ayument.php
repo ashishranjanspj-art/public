@@ -1296,3 +1296,5 @@ require_once plugin_dir_path( __FILE__ ) . 'ayument-patients.php';
 require_once plugin_dir_path( __FILE__ ) . 'ayument-consultations.php';
 require_once plugin_dir_path( __FILE__ ) . 'ayument-prescriptions.php';
 require_once plugin_dir_path( __FILE__ ) . 'ayument-appointments.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-doctors.php';
+require_once plugin_dir_path( __FILE__ ) . 'ayument-doctor-dashboard.php';
