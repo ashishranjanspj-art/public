@@ -1,22 +1,25 @@
 <?php
+/**
+ * AyuMent Appointments Module
+ * Version 2.0
+ *
+ * Keeps the existing admin appointment manager and adds a doctor-facing
+ * appointments workspace through the shortcode:
+ * [ayument_doctor_appointments]
+ */
+
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-/*
- * AyuMent Appointments Module
- * Version 1.0
- */
+/* =========================================================
+ * DATABASE
+ * ========================================================= */
 
-/**
- * Create appointments table.
- */
 function ayument_appointments_create_table() {
-
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'ayument_appointments';
-
     $charset_collate = $wpdb->get_charset_collate();
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -25,6 +28,8 @@ function ayument_appointments_create_table() {
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         patient_id bigint(20) unsigned NOT NULL DEFAULT 0,
         patient_name varchar(255) NOT NULL DEFAULT '',
+        doctor_id bigint(20) unsigned NOT NULL DEFAULT 0,
+        doctor_name varchar(255) NOT NULL DEFAULT '',
         appointment_date date NOT NULL,
         appointment_time time NOT NULL,
         appointment_type varchar(100) NOT NULL DEFAULT 'General Consultation',
@@ -34,27 +39,52 @@ function ayument_appointments_create_table() {
         updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         KEY patient_id (patient_id),
+        KEY doctor_id (doctor_id),
         KEY appointment_date (appointment_date),
         KEY status (status)
     ) {$charset_collate};";
 
     dbDelta( $sql );
+
+    // Safe upgrades for an already-existing table.
+    $doctor_id_exists = $wpdb->get_var(
+        $wpdb->prepare(
+            "SHOW COLUMNS FROM {$table_name} LIKE %s",
+            'doctor_id'
+        )
+    );
+
+    if ( ! $doctor_id_exists ) {
+        $wpdb->query(
+            "ALTER TABLE {$table_name}
+             ADD doctor_id bigint(20) unsigned NOT NULL DEFAULT 0 AFTER patient_name"
+        );
+    }
+
+    $doctor_name_exists = $wpdb->get_var(
+        $wpdb->prepare(
+            "SHOW COLUMNS FROM {$table_name} LIKE %s",
+            'doctor_name'
+        )
+    );
+
+    if ( ! $doctor_name_exists ) {
+        $wpdb->query(
+            "ALTER TABLE {$table_name}
+             ADD doctor_name varchar(255) NOT NULL DEFAULT '' AFTER doctor_id"
+        );
+    }
 }
 
-
-/**
- * Try to create the table when the module is loaded.
- */
 add_action( 'admin_init', 'ayument_appointments_create_table' );
+add_action( 'init', 'ayument_appointments_create_table', 20 );
 
 
-/**
- * Get patients.
- *
- * Uses the AyuMent patients table if available.
- */
+/* =========================================================
+ * PATIENT HELPERS
+ * ========================================================= */
+
 function ayument_appointments_get_patients() {
-
     global $wpdb;
 
     $possible_tables = array(
@@ -76,7 +106,6 @@ function ayument_appointments_get_patients() {
         }
 
         $columns = $wpdb->get_results( "SHOW COLUMNS FROM {$table}" );
-
         $column_names = array();
 
         foreach ( $columns as $column ) {
@@ -124,12 +153,7 @@ function ayument_appointments_get_patients() {
     );
 }
 
-
-/**
- * Get patient name from patient ID.
- */
 function ayument_appointments_get_patient_name( $patient_id ) {
-
     if ( ! $patient_id ) {
         return '';
     }
@@ -160,11 +184,11 @@ function ayument_appointments_get_patient_name( $patient_id ) {
 }
 
 
-/**
- * Get appointment.
- */
-function ayument_appointments_get( $appointment_id ) {
+/* =========================================================
+ * APPOINTMENT HELPERS
+ * ========================================================= */
 
+function ayument_appointments_get( $appointment_id ) {
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'ayument_appointments';
@@ -177,31 +201,52 @@ function ayument_appointments_get( $appointment_id ) {
     );
 }
 
-
-/**
- * Delete appointment.
- */
 function ayument_appointments_delete( $appointment_id ) {
-
     global $wpdb;
 
-    $table_name = $wpdb->prefix . 'ayument_appointments';
-
     $wpdb->delete(
-        $table_name,
-        array(
-            'id' => $appointment_id,
-        ),
-        array(
-            '%d',
-        )
+        $wpdb->prefix . 'ayument_appointments',
+        array( 'id' => $appointment_id ),
+        array( '%d' )
     );
 }
 
+function ayument_appointments_doctor_id() {
+    $user = wp_get_current_user();
 
-/**
- * Handle appointment actions.
- */
+    if ( ! $user || ! $user->ID ) {
+        return 0;
+    }
+
+    $allowed = array( 'ayument_doctor', 'ayument_doctor_pending', 'administrator' );
+
+    foreach ( (array) $user->roles as $role ) {
+        if ( in_array( $role, $allowed, true ) ) {
+            return (int) $user->ID;
+        }
+    }
+
+    return 0;
+}
+
+function ayument_appointments_doctor_name( $user_id = 0 ) {
+    $user_id = $user_id ? absint( $user_id ) : get_current_user_id();
+    $user = $user_id ? get_user_by( 'id', $user_id ) : false;
+
+    if ( ! $user ) {
+        return '';
+    }
+
+    $name = trim( $user->first_name . ' ' . $user->last_name );
+
+    return $name ? $name : $user->display_name;
+}
+
+
+/* =========================================================
+ * ADMIN ACTIONS
+ * ========================================================= */
+
 function ayument_appointments_handle_actions() {
 
     if ( ! current_user_can( 'manage_options' ) ) {
@@ -212,15 +257,11 @@ function ayument_appointments_handle_actions() {
         return;
     }
 
-    /*
-     * Delete
-     */
     if (
         isset( $_GET['action'] ) &&
         'delete' === $_GET['action'] &&
         isset( $_GET['appointment_id'] )
     ) {
-
         $appointment_id = absint( $_GET['appointment_id'] );
 
         if (
@@ -230,25 +271,16 @@ function ayument_appointments_handle_actions() {
                 'ayument_delete_appointment_' . $appointment_id
             )
         ) {
-
             ayument_appointments_delete( $appointment_id );
 
             wp_safe_redirect(
-                admin_url(
-                    'admin.php?page=ayument-appointments&deleted=1'
-                )
+                admin_url( 'admin.php?page=ayument-appointments&deleted=1' )
             );
-
             exit;
         }
     }
 
-    /*
-     * Save appointment.
-     */
-    if (
-        isset( $_POST['ayument_save_appointment'] )
-    ) {
+    if ( isset( $_POST['ayument_save_appointment'] ) ) {
 
         if (
             ! isset( $_POST['ayument_appointment_nonce'] ) ||
@@ -275,57 +307,45 @@ function ayument_appointments_handle_actions() {
             : 0;
 
         $patient_name = isset( $_POST['patient_name'] )
-            ? sanitize_text_field(
-                wp_unslash( $_POST['patient_name'] )
-            )
+            ? sanitize_text_field( wp_unslash( $_POST['patient_name'] ) )
+            : '';
+
+        $doctor_id = isset( $_POST['doctor_id'] )
+            ? absint( $_POST['doctor_id'] )
+            : 0;
+
+        $doctor_name = isset( $_POST['doctor_name'] )
+            ? sanitize_text_field( wp_unslash( $_POST['doctor_name'] ) )
             : '';
 
         $appointment_date = isset( $_POST['appointment_date'] )
-            ? sanitize_text_field(
-                wp_unslash( $_POST['appointment_date'] )
-            )
+            ? sanitize_text_field( wp_unslash( $_POST['appointment_date'] ) )
             : '';
 
         $appointment_time = isset( $_POST['appointment_time'] )
-            ? sanitize_text_field(
-                wp_unslash( $_POST['appointment_time'] )
-            )
+            ? sanitize_text_field( wp_unslash( $_POST['appointment_time'] ) )
             : '';
 
         $appointment_type = isset( $_POST['appointment_type'] )
-            ? sanitize_text_field(
-                wp_unslash( $_POST['appointment_type'] )
-            )
+            ? sanitize_text_field( wp_unslash( $_POST['appointment_type'] ) )
             : 'General Consultation';
 
         $status = isset( $_POST['status'] )
-            ? sanitize_text_field(
-                wp_unslash( $_POST['status'] )
-            )
+            ? sanitize_text_field( wp_unslash( $_POST['status'] ) )
             : 'Scheduled';
 
         $reason = isset( $_POST['reason'] )
-            ? sanitize_textarea_field(
-                wp_unslash( $_POST['reason'] )
-            )
+            ? sanitize_textarea_field( wp_unslash( $_POST['reason'] ) )
             : '';
 
-        /*
-         * If patient is selected, always prefer the stored patient name.
-         */
         if ( $patient_id ) {
-
-            $stored_patient_name =
-                ayument_appointments_get_patient_name( $patient_id );
+            $stored_patient_name = ayument_appointments_get_patient_name( $patient_id );
 
             if ( $stored_patient_name ) {
                 $patient_name = $stored_patient_name;
             }
         }
 
-        /*
-         * Basic validation.
-         */
         if ( empty( $appointment_date ) ) {
             $appointment_date = current_time( 'Y-m-d' );
         }
@@ -334,25 +354,29 @@ function ayument_appointments_handle_actions() {
             $appointment_time = '09:00';
         }
 
+        if ( ! $doctor_id ) {
+            $doctor_id = get_current_user_id();
+        }
+
+        if ( ! $doctor_name ) {
+            $doctor_name = ayument_appointments_doctor_name( $doctor_id );
+        }
+
         $data = array(
-            'patient_id'        => $patient_id,
-            'patient_name'      => $patient_name,
-            'appointment_date'  => $appointment_date,
-            'appointment_time'  => $appointment_time,
-            'appointment_type'  => $appointment_type,
-            'status'            => $status,
-            'reason'            => $reason,
-            'updated_at'        => current_time( 'mysql' ),
+            'patient_id'       => $patient_id,
+            'patient_name'     => $patient_name,
+            'doctor_id'        => $doctor_id,
+            'doctor_name'      => $doctor_name,
+            'appointment_date' => $appointment_date,
+            'appointment_time' => $appointment_time,
+            'appointment_type' => $appointment_type,
+            'status'           => $status,
+            'reason'           => $reason,
+            'updated_at'       => current_time( 'mysql' ),
         );
 
         $formats = array(
-            '%d',
-            '%s',
-            '%s',
-            '%s',
-            '%s',
-            '%s',
-            '%s',
+            '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s',
         );
 
         if ( $appointment_id ) {
@@ -360,20 +384,16 @@ function ayument_appointments_handle_actions() {
             $wpdb->update(
                 $table_name,
                 $data,
-                array(
-                    'id' => $appointment_id,
-                ),
+                array( 'id' => $appointment_id ),
                 $formats,
-                array(
-                    '%d',
-                )
+                array( '%d' )
             );
 
             $redirect_url = add_query_arg(
                 array(
-                    'page'            => 'ayument-appointments',
-                    'updated'         => 1,
-                    'appointment_id'  => $appointment_id,
+                    'page'           => 'ayument-appointments',
+                    'updated'        => 1,
+                    'appointment_id' => $appointment_id,
                 ),
                 admin_url( 'admin.php' )
             );
@@ -386,54 +406,33 @@ function ayument_appointments_handle_actions() {
                 $table_name,
                 $data,
                 array(
-                    '%d',
-                    '%s',
-                    '%s',
-                    '%s',
-                    '%s',
-                    '%s',
-                    '%s',
-                    '%s',
+                    '%d', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s',
                 )
             );
-
-            $new_id = $wpdb->insert_id;
 
             $redirect_url = add_query_arg(
                 array(
                     'page'           => 'ayument-appointments',
                     'saved'          => 1,
-                    'appointment_id' => $new_id,
+                    'appointment_id' => $wpdb->insert_id,
                 ),
                 admin_url( 'admin.php' )
             );
         }
 
         wp_safe_redirect( $redirect_url );
-
         exit;
     }
 }
 
-add_action(
-    'admin_init',
-    'ayument_appointments_handle_actions'
-);
+add_action( 'admin_init', 'ayument_appointments_handle_actions' );
 
 
-/**
- * Register menu.
- *
- * Only add this if the parent plugin has not already registered
- * the menu elsewhere.
- */
+/* =========================================================
+ * ADMIN MENU
+ * ========================================================= */
+
 function ayument_appointments_menu() {
-
-    /*
-     * The main AyuMent plugin already loads this module.
-     * The menu is intentionally registered here so the module
-     * remains usable by itself.
-     */
     add_submenu_page(
         'ayument-dashboard',
         'Appointments',
@@ -444,23 +443,15 @@ function ayument_appointments_menu() {
     );
 }
 
-
-/*
- * Prevent duplicate menu registration if the main plugin already
- * handles the menu.
- */
 if ( ! function_exists( 'ayument_register_appointments_menu' ) ) {
-    add_action(
-        'admin_menu',
-        'ayument_appointments_menu',
-        30
-    );
+    add_action( 'admin_menu', 'ayument_appointments_menu', 30 );
 }
 
 
-/**
- * Appointments page.
- */
+/* =========================================================
+ * ADMIN PAGE
+ * ========================================================= */
+
 function ayument_appointments_page() {
 
     if ( ! current_user_can( 'manage_options' ) ) {
@@ -469,1126 +460,643 @@ function ayument_appointments_page() {
 
     global $wpdb;
 
+    ayument_appointments_create_table();
+
+    $table_name = $wpdb->prefix . 'ayument_appointments';
+
+    $patient_id = isset( $_GET['patient_id'] ) ? absint( $_GET['patient_id'] ) : 0;
+    $edit_id    = isset( $_GET['edit'] ) ? absint( $_GET['edit'] ) : 0;
+
+    $edit_appointment = $edit_id ? ayument_appointments_get( $edit_id ) : null;
+
+    if ( $edit_appointment && ! empty( $edit_appointment->patient_id ) ) {
+        $patient_id = absint( $edit_appointment->patient_id );
+    }
+
+    $patient_data = ayument_appointments_get_patients();
+    $patients = $patient_data['patients'];
+
+    $selected_patient_name = $patient_id
+        ? ayument_appointments_get_patient_name( $patient_id )
+        : '';
+
+    if ( $edit_appointment && ! empty( $edit_appointment->patient_name ) ) {
+        $selected_patient_name = $edit_appointment->patient_name;
+    }
+
+    $form_date   = $edit_appointment ? $edit_appointment->appointment_date : current_time( 'Y-m-d' );
+    $form_time   = $edit_appointment ? substr( $edit_appointment->appointment_time, 0, 5 ) : '09:00';
+    $form_type   = $edit_appointment ? $edit_appointment->appointment_type : 'General Consultation';
+    $form_status = $edit_appointment ? $edit_appointment->status : 'Scheduled';
+    $form_reason = $edit_appointment ? $edit_appointment->reason : '';
+
+    $appointments = $wpdb->get_results(
+        "SELECT * FROM {$table_name}
+         ORDER BY appointment_date DESC, appointment_time DESC"
+    );
+
+    ?>
+    <div class="wrap">
+        <h1>AyuMent Appointments</h1>
+
+        <?php if ( isset( $_GET['saved'] ) || isset( $_GET['updated'] ) || isset( $_GET['deleted'] ) ) : ?>
+            <div class="notice notice-success is-dismissible">
+                <p>Appointment saved successfully.</p>
+            </div>
+        <?php endif; ?>
+
+        <div style="background:#fff;padding:25px;margin:20px 0;border:1px solid #ddd;border-radius:12px;">
+            <h2><?php echo $edit_appointment ? 'Edit Appointment' : 'New Appointment'; ?></h2>
+
+            <form method="post">
+                <?php wp_nonce_field( 'ayument_save_appointment', 'ayument_appointment_nonce' ); ?>
+
+                <input type="hidden" name="appointment_id" value="<?php echo esc_attr( $edit_appointment ? $edit_appointment->id : 0 ); ?>">
+
+                <table class="form-table">
+                    <tr>
+                        <th><label for="ayument_patient_id">Patient</label></th>
+                        <td>
+                            <select name="patient_id" id="ayument_patient_id">
+                                <option value="">Select Patient</option>
+                                <?php foreach ( $patients as $patient ) : ?>
+                                    <?php
+                                    $pid = isset( $patient->{$patient_data['id_column']} )
+                                        ? $patient->{$patient_data['id_column']}
+                                        : 0;
+                                    $pname = isset( $patient->{$patient_data['name_column']} )
+                                        ? $patient->{$patient_data['name_column']}
+                                        : '';
+                                    ?>
+                                    <option
+                                        value="<?php echo esc_attr( $pid ); ?>"
+                                        data-name="<?php echo esc_attr( $pname ); ?>"
+                                        <?php selected( $patient_id, $pid ); ?>
+                                    >
+                                        <?php echo esc_html( $pname ); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="ayument_patient_name">Patient Name</label></th>
+                        <td>
+                            <input
+                                type="text"
+                                class="regular-text"
+                                name="patient_name"
+                                id="ayument_patient_name"
+                                value="<?php echo esc_attr( $selected_patient_name ); ?>"
+                            >
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="ayument_doctor_id">Doctor</label></th>
+                        <td>
+                            <input type="number" name="doctor_id" id="ayument_doctor_id"
+                                   value="<?php echo esc_attr( $edit_appointment ? $edit_appointment->doctor_id : get_current_user_id() ); ?>">
+                            <p class="description">User ID of the doctor.</p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="ayument_appointment_date">Date</label></th>
+                        <td><input type="date" name="appointment_date" id="ayument_appointment_date" value="<?php echo esc_attr( $form_date ); ?>" required></td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="ayument_appointment_time">Time</label></th>
+                        <td><input type="time" name="appointment_time" id="ayument_appointment_time" value="<?php echo esc_attr( $form_time ); ?>" required></td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="ayument_appointment_type">Type</label></th>
+                        <td>
+                            <select name="appointment_type">
+                                <?php
+                                foreach (
+                                    array(
+                                        'General Consultation',
+                                        'Follow-up',
+                                        'Prakriti Assessment',
+                                        'HAM-D Assessment',
+                                        'HAM-A Assessment',
+                                        'AI Consultation',
+                                        'Other',
+                                    ) as $type
+                                ) :
+                                ?>
+                                    <option value="<?php echo esc_attr( $type ); ?>" <?php selected( $form_type, $type ); ?>>
+                                        <?php echo esc_html( $type ); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="ayument_status">Status</label></th>
+                        <td>
+                            <select name="status" id="ayument_status">
+                                <?php foreach ( array( 'Scheduled', 'Completed', 'Cancelled', 'No-show' ) as $status ) : ?>
+                                    <option value="<?php echo esc_attr( $status ); ?>" <?php selected( $form_status, $status ); ?>>
+                                        <?php echo esc_html( $status ); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th><label for="ayument_reason">Reason / Chief Complaint</label></th>
+                        <td>
+                            <textarea name="reason" id="ayument_reason" rows="5" class="large-text"><?php echo esc_textarea( $form_reason ); ?></textarea>
+                        </td>
+                    </tr>
+                </table>
+
+                <p>
+                    <button type="submit" name="ayument_save_appointment" class="button button-primary">
+                        <?php echo $edit_appointment ? 'Update Appointment' : 'Save Appointment'; ?>
+                    </button>
+                </p>
+            </form>
+        </div>
+
+        <div style="background:#fff;padding:25px;border:1px solid #ddd;border-radius:12px;">
+            <h2>Appointment History</h2>
+
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Patient</th>
+                        <th>Doctor</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php if ( empty( $appointments ) ) : ?>
+                    <tr><td colspan="8">No appointments recorded yet.</td></tr>
+                <?php else : ?>
+                    <?php foreach ( $appointments as $appointment ) : ?>
+                        <tr>
+                            <td>#<?php echo esc_html( $appointment->id ); ?></td>
+                            <td><?php echo esc_html( $appointment->appointment_date ); ?></td>
+                            <td><?php echo esc_html( $appointment->appointment_time ); ?></td>
+                            <td><?php echo esc_html( $appointment->patient_name ); ?></td>
+                            <td><?php echo esc_html( $appointment->doctor_name ); ?></td>
+                            <td><?php echo esc_html( $appointment->appointment_type ); ?></td>
+                            <td><?php echo esc_html( $appointment->status ); ?></td>
+                            <td>
+                                <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=ayument-appointments&edit=' . absint( $appointment->id ) ) ); ?>">Edit</a>
+                                <a
+                                    class="button"
+                                    href="<?php echo esc_url(
+                                        wp_nonce_url(
+                                            admin_url(
+                                                'admin.php?page=ayument-appointments&action=delete&appointment_id=' . absint( $appointment->id )
+                                            ),
+                                            'ayument_delete_appointment_' . absint( $appointment->id )
+                                        )
+                                    ); ?>"
+                                    onclick="return confirm('Delete this appointment?');"
+                                >Delete</a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const select = document.getElementById('ayument_patient_id');
+        const name = document.getElementById('ayument_patient_name');
+
+        if (!select || !name) return;
+
+        select.addEventListener('change', function () {
+            const option = this.options[this.selectedIndex];
+            name.value = option ? (option.dataset.name || '') : '';
+        });
+    });
+    </script>
+    <?php
+}
+
+
+/* =========================================================
+ * DOCTOR-FACING APPOINTMENTS
+ * ========================================================= */
+
+function ayument_doctor_appointments_shortcode() {
+
+    if ( ! is_user_logged_in() ) {
+        return '<div style="padding:25px;border:1px solid #ddd;border-radius:14px;background:#fff;">Please log in to access appointments.</div>';
+    }
+
+    $doctor_id = ayument_appointments_doctor_id();
+
+    if ( ! $doctor_id ) {
+        return '<div style="padding:25px;border:1px solid #ddd;border-radius:14px;background:#fff;">Doctor access is required for appointments.</div>';
+    }
+
+    ayument_appointments_create_table();
+
+    global $wpdb;
+
     $table_name = $wpdb->prefix . 'ayument_appointments';
 
     /*
-     * Make sure table exists.
-     */
-    ayument_appointments_create_table();
-
-    /*
-     * Determine patient from URL.
-     */
-    $patient_id = isset( $_GET['patient_id'] )
-        ? absint( $_GET['patient_id'] )
-        : 0;
-
-    /*
-     * Determine edit appointment.
-     */
-    $edit_id = isset( $_GET['edit'] )
-        ? absint( $_GET['edit'] )
-        : 0;
-
-    $edit_appointment = null;
-
-    if ( $edit_id ) {
-        $edit_appointment = ayument_appointments_get( $edit_id );
-    }
-
-    /*
-     * If editing, use that appointment's patient.
+     * Doctor actions.
      */
     if (
-        $edit_appointment &&
-        ! empty( $edit_appointment->patient_id )
+        isset( $_POST['ayument_doctor_appointment_action'] ) &&
+        isset( $_POST['appointment_id'] ) &&
+        isset( $_POST['ayument_doctor_appointment_nonce'] )
     ) {
-        $patient_id = absint(
-            $edit_appointment->patient_id
-        );
-    }
-
-    /*
-     * Patient list.
-     */
-    $patient_data = ayument_appointments_get_patients();
-
-    $patients = $patient_data['patients'];
-
-    /*
-     * Patient name.
-     */
-    $selected_patient_name = '';
-
-    if ( $patient_id ) {
-        $selected_patient_name =
-            ayument_appointments_get_patient_name(
-                $patient_id
-            );
-    }
-
-    if (
-        $edit_appointment &&
-        ! empty( $edit_appointment->patient_name )
-    ) {
-        $selected_patient_name =
-            $edit_appointment->patient_name;
-    }
-
-    /*
-     * Form defaults.
-     */
-    $form_date = current_time( 'Y-m-d' );
-    $form_time = '09:00';
-    $form_type = 'General Consultation';
-    $form_status = 'Scheduled';
-    $form_reason = '';
-
-    if ( $edit_appointment ) {
-
-        $form_date =
-            $edit_appointment->appointment_date;
-
-        $form_time =
-            substr(
-                $edit_appointment->appointment_time,
-                0,
-                5
-            );
-
-        $form_type =
-            $edit_appointment->appointment_type;
-
-        $form_status =
-            $edit_appointment->status;
-
-        $form_reason =
-            $edit_appointment->reason;
-    }
-
-    /*
-     * History.
-     */
-    if ( $patient_id ) {
-
-        $appointments = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT *
-                 FROM {$table_name}
-                 WHERE patient_id = %d
-                 ORDER BY appointment_date DESC,
-                          appointment_time DESC",
-                $patient_id
+        if (
+            wp_verify_nonce(
+                sanitize_text_field(
+                    wp_unslash( $_POST['ayument_doctor_appointment_nonce'] )
+                ),
+                'ayument_doctor_appointment_action'
             )
-        );
+        ) {
+            $appointment_id = absint( $_POST['appointment_id'] );
+            $action = sanitize_key(
+                wp_unslash( $_POST['ayument_doctor_appointment_action'] )
+            );
 
-    } else {
+            $appointment = ayument_appointments_get( $appointment_id );
 
-        $appointments = $wpdb->get_results(
+            if (
+                $appointment &&
+                absint( $appointment->doctor_id ) === $doctor_id &&
+                in_array( $action, array( 'complete', 'cancel' ), true )
+            ) {
+                $new_status = 'complete' === $action ? 'Completed' : 'Cancelled';
+
+                $wpdb->update(
+                    $table_name,
+                    array(
+                        'status'     => $new_status,
+                        'updated_at' => current_time( 'mysql' ),
+                    ),
+                    array( 'id' => $appointment_id ),
+                    array( '%s', '%s' ),
+                    array( '%d' )
+                );
+            }
+        }
+    }
+
+    /*
+     * Only show this doctor's appointments.
+     */
+    $appointments = $wpdb->get_results(
+        $wpdb->prepare(
             "SELECT *
              FROM {$table_name}
-             ORDER BY appointment_date DESC,
-                      appointment_time DESC"
-        );
+             WHERE doctor_id = %d
+             ORDER BY appointment_date ASC, appointment_time ASC",
+            $doctor_id
+        )
+    );
+
+    $today = current_time( 'Y-m-d' );
+    $upcoming = array();
+    $history = array();
+
+    foreach ( $appointments as $appointment ) {
+
+        /*
+         * Upcoming = only appointments that are still scheduled
+         * and whose date is today or in the future.
+         *
+         * Completed / Cancelled appointments always belong
+         * in History, even when their date is today or future.
+         */
+        if (
+            $appointment->appointment_date >= $today &&
+            'Scheduled' === $appointment->status
+        ) {
+            $upcoming[] = $appointment;
+        } else {
+            $history[] = $appointment;
+        }
     }
 
+    ob_start();
     ?>
+    <style>
+        .ayument-doctor-apps {
+            max-width: 1200px;
+            margin: 0 auto;
+            font-family: inherit;
+        }
 
-    <div class="wrap">
+        .ayument-doctor-apps * {
+            box-sizing: border-box;
+        }
 
-        <style>
+        .ayument-doctor-apps-hero {
+            background: linear-gradient(135deg,#12306b,#2563eb);
+            color:#fff;
+            padding:32px;
+            border-radius:20px;
+            margin-bottom:24px;
+        }
 
-            .ayument-app-wrap {
-                max-width: 1200px;
-                margin: 30px auto;
-                padding: 0 20px;
+        .ayument-doctor-apps-hero h2 {
+            color:#fff;
+            margin:0 0 8px;
+            font-size:30px;
+        }
+
+        .ayument-doctor-apps-hero p {
+            margin:0;
+            color:#eef5ff;
+        }
+
+        .ayument-doctor-apps-card {
+            background:#fff;
+            border:1px solid #e3eaf4;
+            border-radius:18px;
+            padding:24px;
+            margin-bottom:24px;
+            box-shadow:0 8px 24px rgba(15,23,42,.06);
+        }
+
+        .ayument-doctor-apps-card h3 {
+            margin:0 0 18px;
+            color:#12306b;
+        }
+
+        .ayument-doctor-app-row {
+            display:grid;
+            grid-template-columns:1.2fr 1fr 1fr 1fr 1.2fr;
+            gap:14px;
+            align-items:center;
+            padding:16px 0;
+            border-top:1px solid #edf1f6;
+        }
+
+        .ayument-doctor-app-row:first-of-type {
+            border-top:0;
+        }
+
+        .ayument-doctor-app-muted {
+            color:#64748b;
+            font-size:13px;
+        }
+
+        .ayument-doctor-app-status {
+            display:inline-block;
+            padding:6px 10px;
+            border-radius:999px;
+            background:#dbeafe;
+            color:#1d4ed8;
+            font-size:12px;
+            font-weight:700;
+        }
+
+        .ayument-doctor-app-status.completed {
+            background:#dcfce7;
+            color:#15803d;
+        }
+
+        .ayument-doctor-app-status.cancelled {
+            background:#fee2e2;
+            color:#b91c1c;
+        }
+
+        .ayument-doctor-app-actions {
+            display:flex;
+            gap:8px;
+            flex-wrap:wrap;
+        }
+
+        .ayument-doctor-app-actions button {
+            border:0;
+            border-radius:9px;
+            padding:9px 12px;
+            cursor:pointer;
+            font-weight:600;
+        }
+
+        .ayument-doctor-app-complete {
+            background:#2563eb;
+            color:#fff;
+        }
+
+        .ayument-doctor-app-cancel {
+            background:#fee2e2;
+            color:#b91c1c;
+        }
+
+        .ayument-doctor-app-empty {
+            padding:20px;
+            background:#f8fafc;
+            border-radius:12px;
+            color:#64748b;
+        }
+
+        @media(max-width:800px) {
+            .ayument-doctor-app-row {
+                grid-template-columns:1fr;
+                padding:18px 0;
             }
+        }
+    </style>
 
-            .ayument-app-hero {
-                background: linear-gradient(
-                    135deg,
-                    #1e3a8a,
-                    #2563eb
-                );
-                color: #ffffff;
-                padding: 42px;
-                border-radius: 24px;
-                margin-bottom: 28px;
-                box-shadow: 0 10px 30px rgba(
-                    15,
-                    23,
-                    42,
-                    0.12
-                );
-            }
+    <div class="ayument-doctor-apps">
 
-            .ayument-app-hero h1 {
-                color: #ffffff;
-                font-size: 34px;
-                margin: 0 0 10px;
-            }
-
-            .ayument-app-hero p {
-                color: #ffffff;
-                font-size: 16px;
-                margin: 0;
-                opacity: 0.95;
-            }
-
-            .ayument-app-card {
-                background: #ffffff;
-                border-radius: 22px;
-                padding: 30px;
-                margin-bottom: 28px;
-                box-shadow: 0 8px 28px rgba(
-                    15,
-                    23,
-                    42,
-                    0.08
-                );
-            }
-
-            .ayument-app-card h2 {
-                color: #12306b;
-                font-size: 24px;
-                margin-top: 0;
-            }
-
-            .ayument-app-grid {
-                display: grid;
-                grid-template-columns:
-                    repeat(2, minmax(0, 1fr));
-                gap: 22px;
-            }
-
-            .ayument-app-field {
-                display: flex;
-                flex-direction: column;
-            }
-
-            .ayument-app-field.full {
-                grid-column: 1 / -1;
-            }
-
-            .ayument-app-field label {
-                font-weight: 600;
-                margin-bottom: 8px;
-                color: #183153;
-            }
-
-            .ayument-app-field input,
-            .ayument-app-field select,
-            .ayument-app-field textarea {
-                width: 100%;
-                border: 1px solid #d7e0ef;
-                border-radius: 12px;
-                padding: 13px 14px;
-                font-size: 15px;
-                box-sizing: border-box;
-                background: #ffffff;
-            }
-
-            .ayument-app-field textarea {
-                min-height: 110px;
-                resize: vertical;
-            }
-
-            .ayument-app-field input:focus,
-            .ayument-app-field select:focus,
-            .ayument-app-field textarea:focus {
-                border-color: #2563eb;
-                box-shadow: 0 0 0 2px rgba(
-                    37,
-                    99,
-                    235,
-                    0.12
-                );
-                outline: none;
-            }
-
-            .ayument-app-actions {
-                margin-top: 25px;
-                display: flex;
-                gap: 12px;
-                flex-wrap: wrap;
-            }
-
-            .ayument-app-btn {
-                display: inline-block;
-                text-decoration: none;
-                border: 0;
-                border-radius: 10px;
-                padding: 12px 20px;
-                cursor: pointer;
-                font-size: 15px;
-                font-weight: 600;
-            }
-
-            .ayument-app-btn-primary {
-                background: #2563eb;
-                color: #ffffff;
-            }
-
-            .ayument-app-btn-secondary {
-                background: #eaf2ff;
-                color: #174ea6;
-            }
-
-            .ayument-app-btn-danger {
-                background: #fee2e2;
-                color: #b91c1c;
-            }
-
-            .ayument-app-table-wrap {
-                overflow-x: auto;
-            }
-
-            .ayument-app-table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 15px;
-            }
-
-            .ayument-app-table th {
-                background: #f4f7fb;
-                color: #183153;
-                text-align: left;
-                padding: 13px;
-                border-bottom: 1px solid #e1e7f0;
-            }
-
-            .ayument-app-table td {
-                padding: 13px;
-                border-bottom: 1px solid #edf1f6;
-                vertical-align: top;
-            }
-
-            .ayument-status {
-                display: inline-block;
-                padding: 5px 10px;
-                border-radius: 999px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            .ayument-status-scheduled {
-                background: #dbeafe;
-                color: #1d4ed8;
-            }
-
-            .ayument-status-completed {
-                background: #dcfce7;
-                color: #15803d;
-            }
-
-            .ayument-status-cancelled {
-                background: #fee2e2;
-                color: #b91c1c;
-            }
-
-            .ayument-status-no-show {
-                background: #fef3c7;
-                color: #92400e;
-            }
-
-            .ayument-notice {
-                padding: 14px 18px;
-                border-radius: 10px;
-                margin-bottom: 20px;
-            }
-
-            .ayument-notice-success {
-                background: #ecfdf5;
-                border-left: 5px solid #10b981;
-                color: #047857;
-            }
-
-            .ayument-notice-info {
-                background: #eff6ff;
-                border-left: 5px solid #2563eb;
-                color: #1d4ed8;
-            }
-
-            .ayument-notice-warning {
-                background: #fff7ed;
-                border-left: 5px solid #f97316;
-                color: #c2410c;
-            }
-
-            .ayument-empty {
-                padding: 25px 0;
-                color: #64748b;
-            }
-
-            @media (max-width: 800px) {
-
-                .ayument-app-grid {
-                    grid-template-columns: 1fr;
-                }
-
-                .ayument-app-field.full {
-                    grid-column: auto;
-                }
-
-                .ayument-app-hero {
-                    padding: 28px;
-                }
-
-            }
-
-        </style>
-
-        <div class="ayument-app-wrap">
-
-            <?php if ( isset( $_GET['saved'] ) ) : ?>
-
-                <div class="ayument-notice ayument-notice-success">
-                    <strong>
-                        Appointment saved successfully.
-                    </strong>
-                </div>
-
-            <?php endif; ?>
-
-            <?php if ( isset( $_GET['updated'] ) ) : ?>
-
-                <div class="ayument-notice ayument-notice-success">
-                    <strong>
-                        Appointment updated successfully.
-                    </strong>
-                </div>
-
-            <?php endif; ?>
-
-            <?php if ( isset( $_GET['deleted'] ) ) : ?>
-
-                <div class="ayument-notice ayument-notice-success">
-                    <strong>
-                        Appointment deleted successfully.
-                    </strong>
-                </div>
-
-            <?php endif; ?>
-
-
-            <div class="ayument-app-hero">
-
-                <h1>📅 Appointments</h1>
-
-                <p>
-                    Schedule and manage patient appointments
-                    for AyuMent.
-                </p>
-
-            </div>
-
-
-            <div class="ayument-app-card">
-
-                <h2>
-                    <?php
-                    echo $edit_appointment
-                        ? '✏️ Edit Appointment'
-                        : '+ New Appointment';
-                    ?>
-                </h2>
-
-                <?php if ( empty( $patients ) ) : ?>
-
-                    <div class="ayument-notice ayument-notice-warning">
-
-                        No patients were found in the AyuMent
-                        patient database.
-
-                        Please create a patient first.
-
-                    </div>
-
-                <?php endif; ?>
-
-
-                <form method="post">
-
-                    <?php
-                    wp_nonce_field(
-                        'ayument_save_appointment',
-                        'ayument_appointment_nonce'
-                    );
-                    ?>
-
-                    <input
-                        type="hidden"
-                        name="appointment_id"
-                        value="<?php
-                        echo esc_attr(
-                            $edit_appointment
-                                ? $edit_appointment->id
-                                : 0
-                        );
-                        ?>"
-                    >
-
-                    <div class="ayument-app-grid">
-
-
-                        <div class="ayument-app-field">
-
-                            <label for="ayument_patient_id">
-                                Patient
-                            </label>
-
-                            <select
-                                name="patient_id"
-                                id="ayument_patient_id"
-                            >
-
-                                <option value="">
-                                    Select Patient
-                                </option>
-
-                                <?php foreach ( $patients as $patient ) : ?>
-
-                                    <?php
-
-                                    $pid =
-                                        isset(
-                                            $patient->{$patient_data['id_column']}
-                                        )
-                                        ? $patient->{$patient_data['id_column']}
-                                        : 0;
-
-                                    $pname =
-                                        isset(
-                                            $patient->{$patient_data['name_column']}
-                                        )
-                                        ? $patient->{$patient_data['name_column']}
-                                        : '';
-
-                                    ?>
-
-                                    <option
-                                        value="<?php echo esc_attr( $pid ); ?>"
-                                        <?php
-                                        selected(
-                                            $patient_id,
-                                            $pid
-                                        );
-                                        ?>
-                                        data-name="<?php
-                                        echo esc_attr( $pname );
-                                        ?>"
-                                    >
-                                        <?php
-                                        echo esc_html(
-                                            $pname
-                                        );
-                                        ?>
-                                    </option>
-
-                                <?php endforeach; ?>
-
-                            </select>
-
-                        </div>
-
-
-                        <div class="ayument-app-field">
-
-                            <label for="ayument_patient_name">
-                                Patient Name
-                            </label>
-
-                            <input
-                                type="text"
-                                name="patient_name"
-                                id="ayument_patient_name"
-                                value="<?php
-                                echo esc_attr(
-                                    $selected_patient_name
-                                );
-                                ?>"
-                                placeholder="Patient name"
-                                <?php
-                                if ( $patient_id ) {
-                                    echo 'readonly';
-                                }
-                                ?>
-                            >
-
-                        </div>
-
-
-                        <div class="ayument-app-field">
-
-                            <label for="ayument_appointment_date">
-                                Appointment Date
-                            </label>
-
-                            <input
-                                type="date"
-                                name="appointment_date"
-                                id="ayument_appointment_date"
-                                value="<?php
-                                echo esc_attr(
-                                    $form_date
-                                );
-                                ?>"
-                                required
-                            >
-
-                        </div>
-
-
-                        <div class="ayument-app-field">
-
-                            <label for="ayument_appointment_time">
-                                Appointment Time
-                            </label>
-
-                            <input
-                                type="time"
-                                name="appointment_time"
-                                id="ayument_appointment_time"
-                                value="<?php
-                                echo esc_attr(
-                                    $form_time
-                                );
-                                ?>"
-                                required
-                            >
-
-                        </div>
-
-
-                        <div class="ayument-app-field">
-
-                            <label for="ayument_appointment_type">
-                                Appointment Type
-                            </label>
-
-                            <select
-                                name="appointment_type"
-                                id="ayument_appointment_type"
-                            >
-
-                                <?php
-
-                                $types = array(
-                                    'General Consultation',
-                                    'Follow-up',
-                                    'Prakriti Assessment',
-                                    'HAM-D Assessment',
-                                    'HAM-A Assessment',
-                                    'AI Consultation',
-                                    'Other',
-                                );
-
-                                foreach ( $types as $type ) :
-
-                                ?>
-
-                                    <option
-                                        value="<?php
-                                        echo esc_attr( $type );
-                                        ?>"
-                                        <?php
-                                        selected(
-                                            $form_type,
-                                            $type
-                                        );
-                                        ?>
-                                    >
-                                        <?php
-                                        echo esc_html( $type );
-                                        ?>
-                                    </option>
-
-                                <?php endforeach; ?>
-
-                            </select>
-
-                        </div>
-
-
-                        <div class="ayument-app-field">
-
-                            <label for="ayument_status">
-                                Status
-                            </label>
-
-                            <select
-                                name="status"
-                                id="ayument_status"
-                            >
-
-                                <?php
-
-                                $statuses = array(
-                                    'Scheduled',
-                                    'Completed',
-                                    'Cancelled',
-                                    'No-show',
-                                );
-
-                                foreach (
-                                    $statuses as $status
-                                ) :
-
-                                ?>
-
-                                    <option
-                                        value="<?php
-                                        echo esc_attr( $status );
-                                        ?>"
-                                        <?php
-                                        selected(
-                                            $form_status,
-                                            $status
-                                        );
-                                        ?>
-                                    >
-                                        <?php
-                                        echo esc_html(
-                                            $status
-                                        );
-                                        ?>
-                                    </option>
-
-                                <?php endforeach; ?>
-
-                            </select>
-
-                        </div>
-
-
-                        <div class="ayument-app-field full">
-
-                            <label for="ayument_reason">
-                                Reason / Chief Complaint
-                            </label>
-
-                            <textarea
-                                name="reason"
-                                id="ayument_reason"
-                                placeholder="Reason for appointment / presenting concern"
-                            ><?php
-                            echo esc_textarea(
-                                $form_reason
-                            );
-                            ?></textarea>
-
-                        </div>
-
-                    </div>
-
-
-                    <div class="ayument-app-actions">
-
-                        <button
-                            type="submit"
-                            name="ayument_save_appointment"
-                            class="ayument-app-btn ayument-app-btn-primary"
-                        >
-                            <?php
-                            echo $edit_appointment
-                                ? '✓ Update Appointment'
-                                : '✓ Save Appointment';
-                            ?>
-                        </button>
-
-
-                        <?php if ( $edit_appointment ) : ?>
-
-                            <a
-                                href="<?php
-                                echo esc_url(
-                                    admin_url(
-                                        'admin.php?page=ayument-appointments'
-                                    )
-                                );
-                                ?>"
-                                class="ayument-app-btn ayument-app-btn-secondary"
-                            >
-                                Cancel Edit
-                            </a>
-
-                        <?php endif; ?>
-
-
-                        <?php if ( $patient_id ) : ?>
-
-                            <a
-                                href="<?php
-                                echo esc_url(
-                                    admin_url(
-                                        'admin.php?page=ayument-patients&patient_id=' .
-                                        absint( $patient_id )
-                                    )
-                                );
-                                ?>"
-                                class="ayument-app-btn ayument-app-btn-secondary"
-                            >
-                                ← Patient Profile
-                            </a>
-
-                        <?php endif; ?>
-
-                    </div>
-
-                </form>
-
-            </div>
-
-
-            <div class="ayument-app-card">
-
-                <h2>
-                    📋 Appointment History
-                </h2>
-
-
-                <?php if ( empty( $appointments ) ) : ?>
-
-                    <div class="ayument-empty">
-                        No appointments recorded yet.
-                    </div>
-
-                <?php else : ?>
-
-                    <div class="ayument-app-table-wrap">
-
-                        <table class="ayument-app-table">
-
-                            <thead>
-
-                                <tr>
-
-                                    <th>
-                                        Date
-                                    </th>
-
-                                    <th>
-                                        Time
-                                    </th>
-
-                                    <?php if ( ! $patient_id ) : ?>
-
-                                        <th>
-                                            Patient
-                                        </th>
-
-                                    <?php endif; ?>
-
-                                    <th>
-                                        Type
-                                    </th>
-
-                                    <th>
-                                        Status
-                                    </th>
-
-                                    <th>
-                                        Reason
-                                    </th>
-
-                                    <th>
-                                        Actions
-                                    </th>
-
-                                </tr>
-
-                            </thead>
-
-
-                            <tbody>
-
-                                <?php foreach (
-                                    $appointments as $appointment
-                                ) : ?>
-
-                                    <?php
-
-                                    $status_class =
-                                        'ayument-status-scheduled';
-
-                                    if (
-                                        'Completed' ===
-                                        $appointment->status
-                                    ) {
-                                        $status_class =
-                                            'ayument-status-completed';
-                                    }
-
-                                    if (
-                                        'Cancelled' ===
-                                        $appointment->status
-                                    ) {
-                                        $status_class =
-                                            'ayument-status-cancelled';
-                                    }
-
-                                    if (
-                                        'No-show' ===
-                                        $appointment->status
-                                    ) {
-                                        $status_class =
-                                            'ayument-status-no-show';
-                                    }
-
-                                    ?>
-
-                                    <tr>
-
-                                        <td>
-                                            <?php
-                                            echo esc_html(
-                                                date_i18n(
-                                                    get_option(
-                                                        'date_format'
-                                                    ),
-                                                    strtotime(
-                                                        $appointment
-                                                            ->appointment_date
-                                                    )
-                                                )
-                                            );
-                                            ?>
-                                        </td>
-
-
-                                        <td>
-                                            <?php
-                                            echo esc_html(
-                                                date_i18n(
-                                                    get_option(
-                                                        'time_format'
-                                                    ),
-                                                    strtotime(
-                                                        $appointment
-                                                            ->appointment_time
-                                                    )
-                                                )
-                                            );
-                                            ?>
-                                        </td>
-
-
-                                        <?php if ( ! $patient_id ) : ?>
-
-                                            <td>
-
-                                                <strong>
-                                                    <?php
-                                                    echo esc_html(
-                                                        $appointment
-                                                            ->patient_name
-                                                    );
-                                                    ?>
-                                                </strong>
-
-                                            </td>
-
-                                        <?php endif; ?>
-
-
-                                        <td>
-                                            <?php
-                                            echo esc_html(
-                                                $appointment
-                                                    ->appointment_type
-                                            );
-                                            ?>
-                                        </td>
-
-
-                                        <td>
-
-                                            <span
-                                                class="ayument-status <?php
-                                                echo esc_attr(
-                                                    $status_class
-                                                );
-                                                ?>"
-                                            >
-                                                <?php
-                                                echo esc_html(
-                                                    $appointment->status
-                                                );
-                                                ?>
-                                            </span>
-
-                                        </td>
-
-
-                                        <td>
-
-                                            <?php
-
-                                            $reason =
-                                                $appointment->reason;
-
-                                            if (
-                                                strlen(
-                                                    $reason
-                                                ) > 80
-                                            ) {
-                                                $reason =
-                                                    substr(
-                                                        $reason,
-                                                        0,
-                                                        80
-                                                    ) . '…';
-                                            }
-
-                                            echo esc_html(
-                                                $reason
-                                            );
-
-                                            ?>
-
-                                        </td>
-
-
-                                        <td>
-
-                                            <div
-                                                style="
-                                                display:flex;
-                                                gap:6px;
-                                                flex-wrap:wrap;
-                                                "
-                                            >
-
-                                                <a
-                                                    href="<?php
-                                                    echo esc_url(
-                                                        add_query_arg(
-                                                            array(
-                                                                'page' =>
-                                                                    'ayument-appointments',
-                                                                'edit' =>
-                                                                    $appointment
-                                                                        ->id,
-                                                            ),
-                                                            admin_url(
-                                                                'admin.php'
-                                                            )
-                                                        )
-                                                    );
-                                                    ?>"
-                                                    class="ayument-app-btn ayument-app-btn-secondary"
-                                                >
-                                                    Edit
-                                                </a>
-
-
-                                                <a
-                                                    href="<?php
-                                                    echo esc_url(
-                                                        wp_nonce_url(
-                                                            add_query_arg(
-                                                                array(
-                                                                    'page' =>
-                                                                        'ayument-appointments',
-                                                                    'action' =>
-                                                                        'delete',
-                                                                    'appointment_id' =>
-                                                                        $appointment
-                                                                            ->id,
-                                                                ),
-                                                                admin_url(
-                                                                    'admin.php'
-                                                                )
-                                                            ),
-                                                            'ayument_delete_appointment_' .
-                                                            $appointment->id
-                                                        )
-                                                    );
-                                                    ?>"
-                                                    class="ayument-app-btn ayument-app-btn-danger"
-                                                    onclick="return confirm('Are you sure you want to delete this appointment?');"
-                                                >
-                                                    Delete
-                                                </a>
-
-                                            </div>
-
-                                        </td>
-
-                                    </tr>
-
-                                <?php endforeach; ?>
-
-                            </tbody>
-
-                        </table>
-
-                    </div>
-
-                <?php endif; ?>
-
-            </div>
-
+        <div class="ayument-doctor-apps-hero">
+            <h2>Appointments</h2>
+            <p>Manage your upcoming patient appointments and consultation schedule.</p>
         </div>
 
+        <div class="ayument-doctor-apps-card">
+            <h3>Upcoming Appointments</h3>
 
-        <script>
+            <?php if ( empty( $upcoming ) ) : ?>
 
-            document.addEventListener(
-                'DOMContentLoaded',
-                function () {
+                <div class="ayument-doctor-app-empty">
+                    No upcoming appointments.
+                </div>
 
-                    const patientSelect =
-                        document.getElementById(
-                            'ayument_patient_id'
-                        );
+            <?php else : ?>
 
-                    const patientName =
-                        document.getElementById(
-                            'ayument_patient_name'
-                        );
+                <?php foreach ( $upcoming as $appointment ) : ?>
 
-                    if (
-                        patientSelect &&
-                        patientName
-                    ) {
+                    <div class="ayument-doctor-app-row">
 
-                        patientSelect.addEventListener(
-                            'change',
-                            function () {
+                        <div>
+                            <strong><?php echo esc_html( $appointment->patient_name ); ?></strong>
+                            <div class="ayument-doctor-app-muted">
+                                Patient
+                            </div>
+                        </div>
 
-                                const option =
-                                    this.options[
-                                        this.selectedIndex
-                                    ];
+                        <div>
+                            <strong><?php echo esc_html( date_i18n( get_option( 'date_format' ), strtotime( $appointment->appointment_date ) ) ); ?></strong>
+                            <div class="ayument-doctor-app-muted">
+                                <?php echo esc_html( date_i18n( get_option( 'time_format' ), strtotime( $appointment->appointment_time ) ) ); ?>
+                            </div>
+                        </div>
 
-                                const name =
-                                    option
-                                    ? option.dataset.name
-                                    : '';
+                        <div>
+                            <strong><?php echo esc_html( $appointment->appointment_type ); ?></strong>
+                            <div class="ayument-doctor-app-muted">
+                                Appointment type
+                            </div>
+                        </div>
 
-                                patientName.value =
-                                    name;
+                        <div>
+                            <span class="ayument-doctor-app-status">
+                                <?php echo esc_html( $appointment->status ); ?>
+                            </span>
+                        </div>
 
-                                if ( name ) {
-                                    patientName.readOnly =
-                                        true;
-                                } else {
-                                    patientName.readOnly =
-                                        false;
-                                }
+                        <div class="ayument-doctor-app-actions">
+                            <form method="post">
+                                <?php wp_nonce_field( 'ayument_doctor_appointment_action', 'ayument_doctor_appointment_nonce' ); ?>
+                                <input type="hidden" name="appointment_id" value="<?php echo esc_attr( $appointment->id ); ?>">
 
-                            }
-                        );
+                                <?php if ( 'Scheduled' === $appointment->status ) : ?>
 
-                    }
+                                    <button
+                                        type="submit"
+                                        name="ayument_doctor_appointment_action"
+                                        value="complete"
+                                        class="ayument-doctor-app-complete"
+                                    >Mark Completed</button>
 
-                }
-            );
+                                    <button
+                                        type="submit"
+                                        name="ayument_doctor_appointment_action"
+                                        value="cancel"
+                                        class="ayument-doctor-app-cancel"
+                                        onclick="return confirm('Cancel this appointment?');"
+                                    >Cancel</button>
 
-        </script>
+                                <?php endif; ?>
+                            </form>
+                        </div>
+
+                    </div>
+
+                <?php endforeach; ?>
+
+            <?php endif; ?>
+        </div>
+
+        <div class="ayument-doctor-apps-card">
+            <h3>Appointment History</h3>
+
+            <?php if ( empty( $history ) ) : ?>
+
+                <div class="ayument-doctor-app-empty">
+                    No appointment history yet.
+                </div>
+
+            <?php else : ?>
+
+                <?php foreach ( $history as $appointment ) : ?>
+
+                    <div class="ayument-doctor-app-row">
+
+                        <div>
+                            <strong><?php echo esc_html( $appointment->patient_name ); ?></strong>
+                        </div>
+
+                        <div>
+                            <?php echo esc_html( $appointment->appointment_date ); ?>
+                            <div class="ayument-doctor-app-muted">
+                                <?php echo esc_html( $appointment->appointment_time ); ?>
+                            </div>
+                        </div>
+
+                        <div>
+                            <?php echo esc_html( $appointment->appointment_type ); ?>
+                        </div>
+
+                        <div>
+                            <span class="ayument-doctor-app-status <?php echo 'Completed' === $appointment->status ? 'completed' : ( 'Cancelled' === $appointment->status ? 'cancelled' : '' ); ?>">
+                                <?php echo esc_html( $appointment->status ); ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-app-muted">
+                            <?php echo esc_html( $appointment->reason ); ?>
+                        </div>
+
+                    </div>
+
+                <?php endforeach; ?>
+
+            <?php endif; ?>
+        </div>
 
     </div>
-
     <?php
+
+    return ob_get_clean();
 }
+
+add_shortcode(
+    'ayument_doctor_appointments',
+    'ayument_doctor_appointments_shortcode'
+);
+
+
+/* =========================================================
+ * AUTOMATIC DOCTOR PORTAL INTEGRATION
+ *
+ * The existing doctor portal uses ?doctor_view=appointments.
+ * This hook makes the appointments workspace appear there
+ * without requiring another shortcode to be manually added.
+ * ========================================================= */
+
+function ayument_appointments_attach_to_doctor_portal( $content ) {
+
+    if ( is_admin() || ! is_user_logged_in() ) {
+        return $content;
+    }
+
+    if (
+        empty( $_GET['doctor_view'] ) ||
+        'appointments' !== sanitize_key( wp_unslash( $_GET['doctor_view'] ) )
+    ) {
+        return $content;
+    }
+
+    $doctor_id = ayument_appointments_doctor_id();
+
+    if ( ! $doctor_id ) {
+        return $content;
+    }
+
+    if ( has_shortcode( $content, 'ayument_doctor_appointments' ) ) {
+        return $content;
+    }
+
+    return $content . do_shortcode( '[ayument_doctor_appointments]' );
+}
+
+add_filter(
+    'the_content',
+    'ayument_appointments_attach_to_doctor_portal',
+    30
+);

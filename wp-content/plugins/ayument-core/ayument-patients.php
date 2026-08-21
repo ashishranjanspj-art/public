@@ -1992,3 +1992,930 @@ function ayument_patients_profile_page( $patient ) {
 
     <?php
 }
+
+
+/**
+ * ---------------------------------------------------------
+ * DOCTOR PORTAL — MY PATIENTS
+ * ---------------------------------------------------------
+ *
+ * Shows only patients connected to the currently logged-in
+ * doctor through the AyuMent appointments table.
+ *
+ * The existing admin Patients module above is intentionally
+ * left unchanged.
+ */
+
+if ( ! function_exists( 'ayument_doctor_patients_get_doctor_id' ) ) {
+    function ayument_doctor_patients_get_doctor_id() {
+
+        $user = wp_get_current_user();
+
+        if ( ! $user || ! $user->ID ) {
+            return 0;
+        }
+
+        $allowed_roles = array(
+            'ayument_doctor',
+            'ayument_doctor_pending',
+            'administrator',
+        );
+
+        foreach ( (array) $user->roles as $role ) {
+            if ( in_array( $role, $allowed_roles, true ) ) {
+                return (int) $user->ID;
+            }
+        }
+
+        return 0;
+    }
+}
+
+
+if ( ! function_exists( 'ayument_doctor_patients_shortcode' ) ) {
+    function ayument_doctor_patients_shortcode() {
+
+        if ( ! is_user_logged_in() ) {
+            return '<div class="ayument-doctor-patients-message">Please log in to access your patients.</div>';
+        }
+
+        $doctor_id = ayument_doctor_patients_get_doctor_id();
+
+        if ( ! $doctor_id ) {
+            return '<div class="ayument-doctor-patients-message">Doctor access is required to view patients.</div>';
+        }
+
+        global $wpdb;
+
+        $patients_table     = $wpdb->prefix . 'ayument_patients';
+        $appointments_table = $wpdb->prefix . 'ayument_appointments';
+
+        /*
+         * Make sure the patient table exists.
+         */
+        ayument_patients_ensure_table();
+
+        /*
+         * Make sure appointments table exists when the
+         * appointments module is available.
+         */
+        if ( function_exists( 'ayument_appointments_create_table' ) ) {
+            ayument_appointments_create_table();
+        }
+
+        /*
+         * Verify both tables exist before querying.
+         */
+        $patients_exists = $wpdb->get_var(
+            $wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $patients_table
+            )
+        );
+
+        $appointments_exists = $wpdb->get_var(
+            $wpdb->prepare(
+                'SHOW TABLES LIKE %s',
+                $appointments_table
+            )
+        );
+
+        if ( $patients_exists !== $patients_table || $appointments_exists !== $appointments_table ) {
+            return '<div class="ayument-doctor-patients-message">Patient records are not available yet.</div>';
+        }
+
+        /*
+         * -----------------------------------------------------
+         * VIEW A SINGLE PATIENT
+         * -----------------------------------------------------
+         */
+        $view_patient_id = isset( $_GET['patient_id'] )
+            ? absint( $_GET['patient_id'] )
+            : 0;
+
+        if ( $view_patient_id > 0 ) {
+
+            /*
+             * Security: the patient must have at least one
+             * appointment belonging to this doctor.
+             */
+            $patient = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT p.*,
+                            MAX(a.appointment_date) AS last_appointment_date,
+                            COUNT(a.id) AS appointment_count
+                     FROM {$patients_table} p
+                     INNER JOIN {$appointments_table} a
+                        ON a.patient_id = p.id
+                     WHERE p.id = %d
+                       AND a.doctor_id = %d
+                     GROUP BY p.id
+                     LIMIT 1",
+                    $view_patient_id,
+                    $doctor_id
+                )
+            );
+
+            if ( ! $patient ) {
+                return '
+                    <div class="ayument-doctor-patients-message">
+                        <strong>Patient not found.</strong>
+                        <p>This patient is not assigned to your doctor account.</p>
+                        <a class="ayument-doctor-patients-btn"
+                           href="' . esc_url(
+                               add_query_arg(
+                                   array( 'doctor_view' => 'patients' ),
+                                   get_permalink()
+                               )
+                           ) . '">
+                            ← Back to My Patients
+                        </a>
+                    </div>';
+            }
+
+            /*
+             * Doctor-specific appointment history.
+             */
+            $patient_appointments = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT appointment_date,
+                            appointment_time,
+                            appointment_type,
+                            status,
+                            reason
+                     FROM {$appointments_table}
+                     WHERE patient_id = %d
+                       AND doctor_id = %d
+                     ORDER BY appointment_date DESC, appointment_time DESC
+                     LIMIT 20",
+                    $view_patient_id,
+                    $doctor_id
+                )
+            );
+
+            ob_start();
+            ?>
+            <style>
+                .ayument-doctor-patient-wrap {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    font-family: inherit;
+                    color: #172033;
+                }
+
+                .ayument-doctor-patient-wrap * {
+                    box-sizing: border-box;
+                }
+
+                .ayument-doctor-patient-hero {
+                    background: linear-gradient(135deg,#12306b,#2563eb);
+                    color: #fff;
+                    padding: 32px;
+                    border-radius: 20px;
+                    margin-bottom: 22px;
+                }
+
+                .ayument-doctor-patient-hero h2 {
+                    margin: 0 0 7px;
+                    color: #fff;
+                    font-size: 30px;
+                }
+
+                .ayument-doctor-patient-hero p {
+                    margin: 0;
+                    color: #eef5ff;
+                }
+
+                .ayument-doctor-patient-actions {
+                    margin-top: 20px;
+                    display: flex;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                }
+
+                .ayument-doctor-patients-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 42px;
+                    padding: 0 17px;
+                    border-radius: 10px;
+                    border: 0;
+                    background: #2563eb;
+                    color: #fff !important;
+                    text-decoration: none !important;
+                    font-weight: 600;
+                    cursor: pointer;
+                }
+
+                .ayument-doctor-patients-btn:hover {
+                    background: #1d4ed8;
+                }
+
+                .ayument-doctor-patients-btn.light {
+                    background: rgba(255,255,255,.14);
+                    border: 1px solid rgba(255,255,255,.25);
+                }
+
+                .ayument-doctor-patients-card {
+                    background: #fff;
+                    border: 1px solid #e3eaf4;
+                    border-radius: 18px;
+                    padding: 24px;
+                    margin-bottom: 22px;
+                    box-shadow: 0 8px 24px rgba(15,23,42,.06);
+                }
+
+                .ayument-doctor-patients-card h3 {
+                    margin: 0 0 18px;
+                    color: #12306b;
+                    font-size: 20px;
+                }
+
+                .ayument-doctor-patient-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2,minmax(0,1fr));
+                    gap: 18px 30px;
+                }
+
+                .ayument-doctor-patient-field {
+                    padding: 13px 0;
+                    border-bottom: 1px solid #edf1f6;
+                }
+
+                .ayument-doctor-patient-label {
+                    display: block;
+                    color: #64748b;
+                    font-size: 13px;
+                    margin-bottom: 5px;
+                }
+
+                .ayument-doctor-patient-value {
+                    color: #172033;
+                    font-weight: 600;
+                    white-space: pre-line;
+                }
+
+                .ayument-doctor-patient-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    min-width: 700px;
+                }
+
+                .ayument-doctor-patient-table th {
+                    text-align: left;
+                    padding: 12px;
+                    background: #f8fafc;
+                    color: #475569;
+                    font-size: 12px;
+                    text-transform: uppercase;
+                    letter-spacing: .03em;
+                }
+
+                .ayument-doctor-patient-table td {
+                    padding: 13px 12px;
+                    border-top: 1px solid #edf1f6;
+                    vertical-align: top;
+                    color: #334155;
+                }
+
+                .ayument-doctor-patient-status {
+                    display: inline-block;
+                    padding: 5px 9px;
+                    border-radius: 999px;
+                    background: #dbeafe;
+                    color: #1d4ed8;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
+
+                .ayument-doctor-patient-status.completed {
+                    background: #dcfce7;
+                    color: #15803d;
+                }
+
+                .ayument-doctor-patient-status.cancelled {
+                    background: #fee2e2;
+                    color: #b91c1c;
+                }
+
+                @media(max-width:700px) {
+                    .ayument-doctor-patient-grid {
+                        grid-template-columns: 1fr;
+                    }
+                }
+            </style>
+
+            <div class="ayument-doctor-patient-wrap">
+
+                <div class="ayument-doctor-patient-hero">
+                    <h2><?php echo esc_html( $patient->name ); ?></h2>
+                    <p>
+                        Patient ID:
+                        <strong><?php echo esc_html( $patient->patient_id ); ?></strong>
+                    </p>
+
+                    <div class="ayument-doctor-patient-actions">
+                        <a
+                            class="ayument-doctor-patients-btn light"
+                            href="<?php echo esc_url(
+                                add_query_arg(
+                                    array( 'doctor_view' => 'patients' ),
+                                    get_permalink()
+                                )
+                            ); ?>"
+                        >
+                            ← All Patients
+                        </a>
+                    </div>
+                </div>
+
+                <div class="ayument-doctor-patients-card">
+                    <h3>👤 Patient Information</h3>
+
+                    <div class="ayument-doctor-patient-grid">
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Date of Birth</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php
+                                echo $patient->dob
+                                    ? esc_html( mysql2date( 'd M Y', $patient->dob ) )
+                                    : '—';
+                                ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Gender</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php echo esc_html( $patient->gender ?: '—' ); ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Mobile</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php echo esc_html( $patient->phone ?: '—' ); ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Email</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php echo esc_html( $patient->email ?: '—' ); ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Occupation</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php echo esc_html( $patient->occupation ?: '—' ); ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Prakriti</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php echo esc_html( $patient->prakriti ?: 'Not assessed' ); ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Last Appointment</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php
+                                echo ! empty( $patient->last_appointment_date )
+                                    ? esc_html( mysql2date( 'd M Y', $patient->last_appointment_date ) )
+                                    : '—';
+                                ?>
+                            </span>
+                        </div>
+
+                        <div class="ayument-doctor-patient-field">
+                            <span class="ayument-doctor-patient-label">Your Appointments</span>
+                            <span class="ayument-doctor-patient-value">
+                                <?php echo esc_html( absint( $patient->appointment_count ) ); ?>
+                            </span>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="ayument-doctor-patients-card">
+                    <h3>📍 Address</h3>
+                    <div style="color:#475569;line-height:1.7;white-space:pre-line;">
+                        <?php echo $patient->address ? esc_html( $patient->address ) : 'No address recorded.'; ?>
+                    </div>
+                </div>
+
+                <div class="ayument-doctor-patients-card">
+                    <h3>⚠️ Allergies</h3>
+                    <div style="color:#475569;line-height:1.7;white-space:pre-line;">
+                        <?php echo $patient->allergies ? esc_html( $patient->allergies ) : 'No known allergies recorded.'; ?>
+                    </div>
+                </div>
+
+                <div class="ayument-doctor-patients-card">
+                    <h3>🩺 Medical History</h3>
+                    <div style="color:#475569;line-height:1.7;white-space:pre-line;">
+                        <?php echo $patient->medical_history ? esc_html( $patient->medical_history ) : 'No medical history recorded.'; ?>
+                    </div>
+                </div>
+
+                <div class="ayument-doctor-patients-card">
+                    <h3>📅 Appointment History</h3>
+
+                    <?php if ( empty( $patient_appointments ) ) : ?>
+
+                        <div style="padding:18px;background:#f8fafc;border-radius:12px;color:#64748b;">
+                            No appointments recorded for this patient.
+                        </div>
+
+                    <?php else : ?>
+
+                        <div style="overflow-x:auto;">
+                            <table class="ayument-doctor-patient-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Time</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ( $patient_appointments as $appointment ) : ?>
+                                        <tr>
+                                            <td>
+                                                <?php echo esc_html( mysql2date( 'd M Y', $appointment->appointment_date ) ); ?>
+                                            </td>
+                                            <td>
+                                                <?php echo esc_html( date_i18n( get_option( 'time_format' ), strtotime( $appointment->appointment_time ) ) ); ?>
+                                            </td>
+                                            <td>
+                                                <?php echo esc_html( $appointment->appointment_type ?: '—' ); ?>
+                                            </td>
+                                            <td>
+                                                <span class="ayument-doctor-patient-status <?php
+                                                    echo 'Completed' === $appointment->status
+                                                        ? 'completed'
+                                                        : ( 'Cancelled' === $appointment->status ? 'cancelled' : '' );
+                                                ?>">
+                                                    <?php echo esc_html( $appointment->status ); ?>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <?php echo esc_html( $appointment->reason ?: '—' ); ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                    <?php endif; ?>
+                </div>
+
+            </div>
+            <?php
+
+            return ob_get_clean();
+        }
+
+        /*
+         * -----------------------------------------------------
+         * MY PATIENTS LIST
+         * -----------------------------------------------------
+         */
+
+        $search = isset( $_GET['patient_search'] )
+            ? sanitize_text_field( wp_unslash( $_GET['patient_search'] ) )
+            : '';
+
+        $where_search = '';
+        $params = array( $doctor_id );
+
+        if ( $search !== '' ) {
+
+            $like = '%' . $wpdb->esc_like( $search ) . '%';
+
+            $where_search = "
+                AND (
+                    p.name LIKE %s
+                    OR p.patient_id LIKE %s
+                    OR p.phone LIKE %s
+                )
+            ";
+
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        $sql = "
+            SELECT
+                p.*,
+                MAX(a.appointment_date) AS last_appointment_date,
+                COUNT(a.id) AS appointment_count
+            FROM {$patients_table} p
+            INNER JOIN {$appointments_table} a
+                ON a.patient_id = p.id
+            WHERE a.doctor_id = %d
+            {$where_search}
+            GROUP BY p.id
+            ORDER BY last_appointment_date DESC, p.name ASC
+        ";
+
+        $patients = $wpdb->get_results(
+            $wpdb->prepare( $sql, $params )
+        );
+
+        $total_patients = count( $patients );
+
+        ob_start();
+        ?>
+        <style>
+            .ayument-doctor-patients {
+                max-width: 1200px;
+                margin: 0 auto;
+                font-family: inherit;
+                color: #172033;
+            }
+
+            .ayument-doctor-patients * {
+                box-sizing: border-box;
+            }
+
+            .ayument-doctor-patients-hero {
+                background: linear-gradient(135deg,#12306b,#2563eb);
+                color:#fff;
+                padding:32px;
+                border-radius:20px;
+                margin-bottom:24px;
+            }
+
+            .ayument-doctor-patients-hero h2 {
+                margin:0 0 8px;
+                color:#fff;
+                font-size:30px;
+            }
+
+            .ayument-doctor-patients-hero p {
+                margin:0;
+                color:#eef5ff;
+            }
+
+            .ayument-doctor-patients-card {
+                background:#fff;
+                border:1px solid #e3eaf4;
+                border-radius:18px;
+                padding:24px;
+                margin-bottom:24px;
+                box-shadow:0 8px 24px rgba(15,23,42,.06);
+            }
+
+            .ayument-doctor-patients-toolbar {
+                display:flex;
+                justify-content:space-between;
+                align-items:center;
+                gap:15px;
+                flex-wrap:wrap;
+            }
+
+            .ayument-doctor-patients-search {
+                display:flex;
+                gap:8px;
+                flex:1;
+                max-width:650px;
+            }
+
+            .ayument-doctor-patients-search input {
+                flex:1;
+                min-height:44px;
+                border:1px solid #dbe3ef;
+                border-radius:10px;
+                padding:0 14px;
+                font-size:14px;
+            }
+
+            .ayument-doctor-patients-btn {
+                display:inline-flex;
+                align-items:center;
+                justify-content:center;
+                min-height:42px;
+                padding:0 17px;
+                border-radius:10px;
+                border:0;
+                background:#2563eb;
+                color:#fff !important;
+                text-decoration:none !important;
+                font-weight:600;
+                cursor:pointer;
+            }
+
+            .ayument-doctor-patients-btn:hover {
+                background:#1d4ed8;
+            }
+
+            .ayument-doctor-patients-btn.secondary {
+                background:#eef4ff;
+                color:#1d4ed8 !important;
+            }
+
+            .ayument-doctor-patients-stat {
+                display:inline-flex;
+                align-items:center;
+                gap:14px;
+                padding:16px 20px;
+                border-radius:14px;
+                background:#f8fafc;
+                border:1px solid #e3eaf4;
+                margin-bottom:20px;
+            }
+
+            .ayument-doctor-patients-stat strong {
+                font-size:24px;
+                color:#12306b;
+            }
+
+            .ayument-doctor-patients-stat span {
+                color:#64748b;
+                font-size:13px;
+            }
+
+            .ayument-doctor-patients-table-wrap {
+                overflow-x:auto;
+            }
+
+            .ayument-doctor-patients-table {
+                width:100%;
+                border-collapse:collapse;
+                min-width:820px;
+            }
+
+            .ayument-doctor-patients-table th {
+                text-align:left;
+                padding:13px 12px;
+                background:#f8fafc;
+                color:#475569;
+                font-size:12px;
+                text-transform:uppercase;
+                letter-spacing:.03em;
+                border-bottom:1px solid #e2e8f0;
+            }
+
+            .ayument-doctor-patients-table td {
+                padding:16px 12px;
+                border-bottom:1px solid #edf1f6;
+                vertical-align:middle;
+                color:#334155;
+            }
+
+            .ayument-doctor-patients-table tr:last-child td {
+                border-bottom:0;
+            }
+
+            .ayument-doctor-patient-name {
+                font-weight:700;
+                color:#12306b;
+                font-size:15px;
+            }
+
+            .ayument-doctor-patient-id {
+                margin-top:3px;
+                color:#64748b;
+                font-size:12px;
+            }
+
+            .ayument-doctor-patient-muted {
+                color:#64748b;
+                font-size:13px;
+            }
+
+            .ayument-doctor-patients-empty {
+                padding:45px 20px;
+                text-align:center;
+                color:#64748b;
+                background:#f8fafc;
+                border-radius:12px;
+            }
+
+            @media(max-width:700px) {
+                .ayument-doctor-patients-search {
+                    max-width:none;
+                    width:100%;
+                }
+
+                .ayument-doctor-patients-toolbar {
+                    align-items:stretch;
+                }
+            }
+        </style>
+
+        <div class="ayument-doctor-patients">
+
+            <div class="ayument-doctor-patients-hero">
+                <h2>My Patients</h2>
+                <p>Patients connected to your AyuMent appointments and clinical care.</p>
+            </div>
+
+            <div class="ayument-doctor-patients-card">
+
+                <div class="ayument-doctor-patients-toolbar">
+
+                    <form
+                        method="get"
+                        class="ayument-doctor-patients-search"
+                    >
+                        <?php
+                        /*
+                         * Preserve the current portal view so the
+                         * existing doctor dashboard keeps control.
+                         */
+                        ?>
+                        <input
+                            type="hidden"
+                            name="doctor_view"
+                            value="patients"
+                        >
+
+                        <input
+                            type="search"
+                            name="patient_search"
+                            value="<?php echo esc_attr( $search ); ?>"
+                            placeholder="Search by patient name, ID or mobile..."
+                        >
+
+                        <button
+                            type="submit"
+                            class="ayument-doctor-patients-btn"
+                        >
+                            Search
+                        </button>
+                    </form>
+
+                    <div class="ayument-doctor-patients-stat">
+                        <strong><?php echo esc_html( $total_patients ); ?></strong>
+                        <span>My Patients</span>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="ayument-doctor-patients-card">
+
+                <?php if ( empty( $patients ) ) : ?>
+
+                    <div class="ayument-doctor-patients-empty">
+                        <div style="font-size:42px;margin-bottom:10px;">👤</div>
+                        <h3 style="margin:0 0 8px;color:#12306b;">No patients yet</h3>
+                        <p style="margin:0;">
+                            Patients will appear here after an appointment is assigned to you.
+                        </p>
+                    </div>
+
+                <?php else : ?>
+
+                    <div class="ayument-doctor-patients-table-wrap">
+                        <table class="ayument-doctor-patients-table">
+
+                            <thead>
+                                <tr>
+                                    <th>Patient</th>
+                                    <th>Gender</th>
+                                    <th>Mobile</th>
+                                    <th>Prakriti</th>
+                                    <th>Last Appointment</th>
+                                    <th>Visits</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+
+                                <?php foreach ( $patients as $patient ) : ?>
+
+                                    <tr>
+
+                                        <td>
+                                            <div class="ayument-doctor-patient-name">
+                                                <?php echo esc_html( $patient->name ); ?>
+                                            </div>
+
+                                            <div class="ayument-doctor-patient-id">
+                                                <?php echo esc_html( $patient->patient_id ); ?>
+                                            </div>
+                                        </td>
+
+                                        <td>
+                                            <?php echo esc_html( $patient->gender ?: '—' ); ?>
+                                        </td>
+
+                                        <td>
+                                            <?php echo esc_html( $patient->phone ?: '—' ); ?>
+                                        </td>
+
+                                        <td>
+                                            <?php echo esc_html( $patient->prakriti ?: 'Not assessed' ); ?>
+                                        </td>
+
+                                        <td>
+                                            <?php
+                                            echo ! empty( $patient->last_appointment_date )
+                                                ? esc_html( mysql2date( 'd M Y', $patient->last_appointment_date ) )
+                                                : '—';
+                                            ?>
+                                        </td>
+
+                                        <td>
+                                            <?php echo esc_html( absint( $patient->appointment_count ) ); ?>
+                                        </td>
+
+                                        <td>
+                                            <a
+                                                class="ayument-doctor-patients-btn"
+                                                href="<?php echo esc_url(
+                                                    add_query_arg(
+                                                        array(
+                                                            'doctor_view' => 'patients',
+                                                            'patient_id'  => absint( $patient->id ),
+                                                        ),
+                                                        get_permalink()
+                                                    )
+                                                ); ?>"
+                                            >
+                                                View Patient
+                                            </a>
+                                        </td>
+
+                                    </tr>
+
+                                <?php endforeach; ?>
+
+                            </tbody>
+
+                        </table>
+                    </div>
+
+                <?php endif; ?>
+
+            </div>
+
+        </div>
+        <?php
+
+        return ob_get_clean();
+    }
+}
+
+
+if ( ! shortcode_exists( 'ayument_doctor_patients' ) ) {
+    add_shortcode(
+        'ayument_doctor_patients',
+        'ayument_doctor_patients_shortcode'
+    );
+}
+
+
+/**
+ * Automatically attach My Patients to the existing Doctor Portal.
+ *
+ * The existing portal already uses:
+ *     ?doctor_view=patients
+ *
+ * Therefore no change to the Doctor Portal page itself is required.
+ */
+if ( ! function_exists( 'ayument_patients_attach_to_doctor_portal' ) ) {
+    function ayument_patients_attach_to_doctor_portal( $content ) {
+
+        if ( is_admin() || ! is_user_logged_in() ) {
+            return $content;
+        }
+
+        if (
+            empty( $_GET['doctor_view'] )
+            || 'patients' !== sanitize_key( wp_unslash( $_GET['doctor_view'] ) )
+        ) {
+            return $content;
+        }
+
+        if ( ! ayument_doctor_patients_get_doctor_id() ) {
+            return $content;
+        }
+
+        if ( has_shortcode( $content, 'ayument_doctor_patients' ) ) {
+            return $content;
+        }
+
+        return $content . do_shortcode( '[ayument_doctor_patients]' );
+    }
+
+    add_filter(
+        'the_content',
+        'ayument_patients_attach_to_doctor_portal',
+        30
+    );
+}
